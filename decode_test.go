@@ -82,14 +82,14 @@ func TestDecodeFields(t *testing.T) {
 			"0002" +
 			"00000003" +
 			"0000000000000004" +
-			"00000002ff00" +
-			"0000000774657374696e67" +
+			"02ff00" +
+			"0774657374696e67" +
 			"1100000000000000000000000000000000000000000000000000000000000000" +
 			"0102" +
-			"000000020304" +
-			"000000020000000774657374696e670000000774657374696e67" +
+			"020304" +
+			"020774657374696e670774657374696e67" +
 			"0000000000000001" +
-			"0000000774657374696e670000000774657374696e67",
+			"0774657374696e670774657374696e67",
 	)
 	require.NoError(t, err)
 	require.NoError(t, DecodeFields(
@@ -132,4 +132,23 @@ func TestDecode_Errors(t *testing.T) {
 	err = DecodeField(bytes.NewReader([]byte{}), uint64(0))
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "can only decode into pointer types")
+
+	var buf bytes.Buffer
+	require.NoError(t, writeUvarint(&buf, DefaultMaxByteFieldLen + DefaultMaxVariableArrayLen + 1))
+	var byteArrVal []byte
+	err = DecodeField(bytes.NewReader(buf.Bytes()), &byteArrVal)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "byte-assignable field length too large to decode")
+
+	var strVal string
+	// zero out err since the err message is the same
+	err = nil
+	err = DecodeField(bytes.NewReader(buf.Bytes()), &strVal)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "byte-assignable field length too large to decode")
+
+	var strArrVal []string
+	err = DecodeField(bytes.NewReader(buf.Bytes()), &strArrVal)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "variable array field length too large to decode")
 }

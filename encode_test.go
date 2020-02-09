@@ -59,10 +59,10 @@ func TestEncodeFields(t *testing.T) {
 			"ffffffff"+
 			"ffffffffffffffff"+
 			"00ff000000000000000000000000000000000000000000000000000000000000"+
-			"0000000774657374696e670000000774657374696e67"+
-			"000000020102"+
-			"000000020000000774657374696e670000000774657374696e67"+
-			"0000000b68656c6c6f207468657265"+
+			"0774657374696e670774657374696e67"+
+			"020102"+
+			"020774657374696e670774657374696e67"+
+			"0b68656c6c6f207468657265"+
 			"0000000000000001",
 		hex.EncodeToString(buf.Bytes()),
 	)
@@ -78,4 +78,23 @@ func TestEncode_Errors(t *testing.T) {
 	err := EncodeField(rw, &struct{}{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cannot be encoded")
+
+	customEncoder := &ConfiguredEncoder{
+		MaxVariableArrayLen: 5,
+		MaxByteFieldLen:     5,
+	}
+
+	err = customEncoder.EncodeField(rw, make([]byte, customEncoder.MaxByteFieldLen+1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "byte-assignable field length too large to encode")
+
+	// zero out err since the message is the same
+	err = nil
+	err = customEncoder.EncodeField(rw, "123456")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "byte-assignable field length too large to encode")
+
+	err = customEncoder.EncodeField(rw, make([]string, customEncoder.MaxVariableArrayLen+1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "variable array field length too large to encode")
 }

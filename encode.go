@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"reflect"
 )
 
@@ -15,8 +14,16 @@ var (
 )
 
 func EncodeFields(w io.Writer, items ...interface{}) error {
+	return defaultEncoder.EncodeFields(w, items...)
+}
+
+func EncodeField(w io.Writer, item interface{}) error {
+	return defaultEncoder.EncodeField(w, item)
+}
+
+func (c *ConfiguredEncoder) EncodeFields(w io.Writer, items ...interface{}) error {
 	for _, item := range items {
-		if err := EncodeField(w, item); err != nil {
+		if err := c.EncodeField(w, item); err != nil {
 			return err
 		}
 	}
@@ -24,7 +31,7 @@ func EncodeFields(w io.Writer, items ...interface{}) error {
 	return nil
 }
 
-func EncodeField(w io.Writer, item interface{}) error {
+func (c *ConfiguredEncoder) EncodeField(w io.Writer, item interface{}) error {
 	var err error
 	switch it := item.(type) {
 	case Encoder:
@@ -50,25 +57,24 @@ func EncodeField(w io.Writer, item interface{}) error {
 		binary.BigEndian.PutUint64(b, it)
 		_, err = w.Write(b)
 	case []byte:
-		if len(it) > math.MaxUint32 {
-			return errors.New("variable-length field too large to encode")
+		if uint64(len(it)) > c.MaxByteFieldLen {
+			return errors.New("byte-assignable field length too large to encode")
 		}
-		lenB := make([]byte, 4, 4)
-		binary.BigEndian.PutUint32(lenB, uint32(len(it)))
-		if _, err := w.Write(lenB); err != nil {
+		if err := writeUvarint(w, len(it)); err != nil {
 			return err
 		}
 		_, err = w.Write(it)
 	case string:
-		err = EncodeField(w, []byte(item.(string)))
+		b := []byte(item.(string))
+		err = c.EncodeField(w, b)
 	default:
-		err = encodeReflect(w, item)
+		err = c.encodeReflect(w, item)
 	}
 
 	return err
 }
 
-func encodeReflect(w io.Writer, item interface{}) error {
+func (c *ConfiguredEncoder) encodeReflect(w io.Writer, item interface{}) error {
 	t := reflect.TypeOf(item)
 
 	canonicalized := canonicalizeWellKnown(t)
@@ -86,7 +92,7 @@ func encodeReflect(w io.Writer, item interface{}) error {
 		}
 
 		for i := 0; i < itemVal.Len(); i++ {
-			if err := EncodeField(w, itemVal.Index(i).Interface()); err != nil {
+			if err := c.EncodeField(w, itemVal.Index(i).Interface()); err != nil {
 				return err
 			}
 		}
@@ -95,18 +101,15 @@ func encodeReflect(w io.Writer, item interface{}) error {
 
 	if t.Kind() == reflect.Slice {
 		val := reflect.ValueOf(item)
-		if val.Len() > math.MaxUint32 {
-			return errors.New("number of array elements too large to encode")
+		if val.Len() > c.MaxVariableArrayLen {
+			return errors.New("variable array field length too large to encode")
 		}
 
-		itemCount := make([]byte, 4, 4)
-		binary.BigEndian.PutUint32(itemCount, uint32(val.Len()))
-		if _, err := w.Write(itemCount); err != nil {
+		if err := writeUvarint(w, val.Len()); err != nil {
 			return err
 		}
-
 		for i := 0; i < val.Len(); i++ {
-			if err := EncodeField(w, val.Index(i).Interface()); err != nil {
+			if err := c.EncodeField(w, val.Index(i).Interface()); err != nil {
 				return err
 			}
 		}
@@ -114,4 +117,11 @@ func encodeReflect(w io.Writer, item interface{}) error {
 	}
 
 	return errors.New(fmt.Sprintf("type %s cannot be encoded", t.String()))
+}
+
+func writeUvarint(w io.Writer, n int) error {
+	lenBuf := make([]byte, binary.MaxVarintLen64, binary.MaxVarintLen64)
+	bytesWritten := binary.PutUvarint(lenBuf, uint64(n))
+	_, err := w.Write(lenBuf[:bytesWritten])
+	return err
 }

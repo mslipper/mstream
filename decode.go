@@ -9,9 +9,41 @@ import (
 	"github.com/pkg/errors"
 )
 
+type byteReader struct {
+	r   io.Reader
+	buf []byte
+}
+
+func newByteReader(r io.Reader) *byteReader {
+	return &byteReader{
+		r:   r,
+		buf: make([]byte, 1, 1),
+	}
+}
+
+func (r *byteReader) Read(p []byte) (int, error) {
+	return r.r.Read(p)
+}
+
+func (r *byteReader) ReadByte() (byte, error) {
+	_, err := io.ReadFull(r.r, r.buf)
+	if err != nil {
+		return 0, err
+	}
+	return r.buf[0], nil
+}
+
 func DecodeFields(r io.Reader, items ...interface{}) error {
+	return defaultEncoder.DecodeFields(r, items...)
+}
+
+func DecodeField(r io.Reader, item interface{}) error {
+	return defaultEncoder.DecodeField(r, item)
+}
+
+func (c *ConfiguredEncoder) DecodeFields(r io.Reader, items ...interface{}) error {
 	for _, item := range items {
-		if err := DecodeField(r, item); err != nil {
+		if err := c.DecodeField(r, item); err != nil {
 			return err
 		}
 	}
@@ -19,7 +51,7 @@ func DecodeFields(r io.Reader, items ...interface{}) error {
 	return nil
 }
 
-func DecodeField(r io.Reader, item interface{}) error {
+func (c *ConfiguredEncoder) DecodeField(r io.Reader, item interface{}) error {
 	var err error
 	switch it := item.(type) {
 	case Decoder:
@@ -61,11 +93,14 @@ func DecodeField(r io.Reader, item interface{}) error {
 		}
 		*it = binary.BigEndian.Uint64(b)
 	case *[]byte:
-		lenB := make([]byte, 4, 4)
-		if _, err := io.ReadFull(r, lenB); err != nil {
+		br := newByteReader(r)
+		l, err := binary.ReadUvarint(br)
+		if err != nil {
 			return err
 		}
-		l := binary.BigEndian.Uint32(lenB)
+		if l > c.MaxByteFieldLen {
+			return errors.New("byte-assignable field length too large to decode")
+		}
 		buf := make([]byte, l, l)
 		if _, err := io.ReadFull(r, buf); err != nil {
 			return err
@@ -73,18 +108,18 @@ func DecodeField(r io.Reader, item interface{}) error {
 		*it = buf
 	case *string:
 		var buf []byte
-		if err := DecodeField(r, &buf); err != nil {
+		if err := c.DecodeField(r, &buf); err != nil {
 			return err
 		}
 		*it = string(buf)
 	default:
-		err = decodeReflect(r, item)
+		err = c.decodeReflect(r, item)
 	}
 
 	return err
 }
 
-func decodeReflect(r io.Reader, item interface{}) error {
+func (c *ConfiguredEncoder) decodeReflect(r io.Reader, item interface{}) error {
 	itemT := reflect.TypeOf(item)
 	if itemT.Kind() != reflect.Ptr {
 		return errors.New("can only decode into pointer types")
@@ -113,7 +148,7 @@ func decodeReflect(r io.Reader, item interface{}) error {
 			reflect.Copy(tmpPtr.Elem().Slice(0, l), reflect.ValueOf(buf))
 		} else {
 			for i := 0; i < indirectVal.Len(); i++ {
-				if err := DecodeField(r, tmpPtr.Elem().Index(i).Addr().Interface()); err != nil {
+				if err := c.DecodeField(r, tmpPtr.Elem().Index(i).Addr().Interface()); err != nil {
 					return err
 				}
 			}
@@ -128,17 +163,20 @@ func decodeReflect(r io.Reader, item interface{}) error {
 		tmpPtr := reflect.New(indirectT)
 		tmpPtr.Elem().Set(tmp)
 
-		lenB := make([]byte, 4, 4)
-		if _, err := io.ReadFull(r, lenB); err != nil {
+		br := newByteReader(r)
+		l, err := binary.ReadUvarint(br)
+		if err != nil {
 			return err
 		}
-		l := binary.BigEndian.Uint32(lenB)
+		if l > uint64(c.MaxVariableArrayLen) {
+			return errors.New("variable array field length too large to decode")
+		}
 
 		for i := 0; i < int(l); i++ {
 			sliceItem := reflect.Zero(indirectT.Elem())
 			sliceItemPtr := reflect.New(indirectT.Elem())
 			sliceItemPtr.Elem().Set(sliceItem)
-			if err := DecodeField(r, sliceItemPtr.Interface()); err != nil {
+			if err := c.DecodeField(r, sliceItemPtr.Interface()); err != nil {
 				return err
 			}
 			tmpPtr.Elem().Set(reflect.Append(tmpPtr.Elem(), sliceItemPtr.Elem()))
