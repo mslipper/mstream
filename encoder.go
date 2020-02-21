@@ -4,7 +4,7 @@ import "io"
 
 const (
 	DefaultMaxVariableArrayLen = 1024
-	DefaultMaxByteFieldLen     = 5 * 1024
+	DefaultMaxByteFieldLen     = 256 * 1024
 )
 
 type Encoder interface {
