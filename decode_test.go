@@ -3,6 +3,7 @@ package mstream
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -18,6 +19,9 @@ func (c *cafeEncodeDecoder) Decode(r io.Reader) error {
 	buf := make([]byte, 2, 2)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return err
+	}
+	if !bytes.Equal(buf, []byte{0xca, 0xfe}) {
+		return errors.New("invalid cafe decode")
 	}
 	c.data = buf
 	return nil
@@ -45,6 +49,7 @@ func TestDecodeFields(t *testing.T) {
 		f10 []string
 		f11 time.Time
 		f12 [2]string
+		f13 []*cafeEncodeDecoder
 	}
 	exp := &testStruct{
 		f0: cafe,
@@ -72,6 +77,10 @@ func TestDecodeFields(t *testing.T) {
 			"testing",
 			"testing",
 		},
+		f13: []*cafeEncodeDecoder{
+			&cafe,
+			&cafe,
+		},
 	}
 	exp.f7[0] = 0x11
 
@@ -89,7 +98,8 @@ func TestDecodeFields(t *testing.T) {
 			"020304" +
 			"020774657374696e670774657374696e67" +
 			"0000000000000001" +
-			"0774657374696e670774657374696e67",
+			"0774657374696e670774657374696e67" +
+			"02cafecafe",
 	)
 	require.NoError(t, err)
 	require.NoError(t, DecodeFields(
@@ -107,6 +117,7 @@ func TestDecodeFields(t *testing.T) {
 		&actual.f10,
 		&actual.f11,
 		&actual.f12,
+		&actual.f13,
 	))
 	require.EqualValues(t, exp.f0.data, exp.f0.data)
 	require.EqualValues(t, exp.f1, actual.f1)
@@ -121,6 +132,7 @@ func TestDecodeFields(t *testing.T) {
 	require.EqualValues(t, exp.f10, actual.f10)
 	require.EqualValues(t, exp.f11, actual.f11)
 	require.EqualValues(t, exp.f12, actual.f12)
+	require.Equal(t, len(exp.f13), len(actual.f13))
 }
 
 func TestDecode_Errors(t *testing.T) {
@@ -134,7 +146,7 @@ func TestDecode_Errors(t *testing.T) {
 	require.Contains(t, err.Error(), "can only decode into pointer types")
 
 	var buf bytes.Buffer
-	require.NoError(t, writeUvarint(&buf, DefaultMaxByteFieldLen + DefaultMaxVariableArrayLen + 1))
+	require.NoError(t, writeUvarint(&buf, DefaultMaxByteFieldLen+DefaultMaxVariableArrayLen+1))
 	var byteArrVal []byte
 	err = DecodeField(bytes.NewReader(buf.Bytes()), &byteArrVal)
 	require.Error(t, err)

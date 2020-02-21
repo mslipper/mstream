@@ -20,6 +20,10 @@ func TestEncodeFields(t *testing.T) {
 	require.NoError(t, EncodeFields(
 		&buf,
 		cafe,
+		[]*cafeEncodeDecoder{
+			cafe,
+			cafe,
+		},
 		true,
 		false,
 		uint8(0),
@@ -48,6 +52,7 @@ func TestEncodeFields(t *testing.T) {
 	require.Equal(
 		t,
 		"cafe"+
+			"02cafecafe"+
 			"01"+
 			"00"+
 			"00"+
