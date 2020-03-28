@@ -66,6 +66,8 @@ func (c *ConfiguredEncoder) EncodeField(w io.Writer, item interface{}) error {
 		_, err = w.Write(it)
 	case string:
 		err = c.EncodeField(w, []byte(item.(string)))
+	case [32]byte:
+		_, err = w.Write(it[:])
 	default:
 		err = c.encodeReflect(w, item)
 	}

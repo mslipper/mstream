@@ -66,6 +66,14 @@ func BenchmarkStringEncoding1024(b *testing.B) {
 	}
 }
 
+func BenchmarkByteArrayEncoding32(b *testing.B) {
+	bytes := make([]byte, 32, 32)
+	rw := new(NopReadWriter)
+	for n := 0; n < b.N; n++ {
+		require.NoError(b, EncodeField(rw, bytes))
+	}
+}
+
 func BenchmarkByteArrayEncodingReflect(b *testing.B) {
 	var bytes [1024]byte
 	rw := new(NopReadWriter)

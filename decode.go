@@ -112,6 +112,12 @@ func (c *ConfiguredEncoder) DecodeField(r io.Reader, item interface{}) error {
 			return err
 		}
 		*it = string(buf)
+	case *[32]byte:
+		var buf [32]byte
+		if _, err := io.ReadFull(r, buf[:]); err != nil {
+			return err
+		}
+		*it = buf
 	default:
 		err = c.decodeReflect(r, item)
 	}
